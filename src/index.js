@@ -33,6 +33,7 @@ const formatMessage = function(name, message, codeFrame) {
 
 const transpile = function(source, options) {
   const forceEnv = options.forceEnv;
+  let transformTime;
   let tmpEnv;
 
   delete options.forceEnv;
@@ -44,7 +45,9 @@ const transpile = function(source, options) {
 
   let result;
   try {
+    const startTime = process.hrtime();
     result = babel.transform(source, options);
+    transformTime = process.hrtime(startTime);
   } catch (error) {
     if (forceEnv) restoreBabelEnv(tmpEnv);
     if (error.message && error.codeFrame) {
@@ -84,6 +87,7 @@ const transpile = function(source, options) {
     code: code,
     map: map,
     metadata: metadata,
+    transformTime: transformTime,
   };
 };
 
@@ -153,10 +157,12 @@ module.exports = function(source, inputSourceMap) {
   const cacheDirectory = options.cacheDirectory;
   const cacheIdentifier = options.cacheIdentifier;
   const metadataSubscribers = options.metadataSubscribers;
+  const timingCallback = options.timingCallback;
 
   delete options.cacheDirectory;
   delete options.cacheIdentifier;
   delete options.metadataSubscribers;
+  delete options.timingCallback;
 
   if (cacheDirectory) {
     const callback = this.async();
@@ -168,19 +174,23 @@ module.exports = function(source, inputSourceMap) {
         options: options,
         transform: transpile,
       },
-      (err, { code, map, metadata } = {}) => {
+      (err, { code, map, metadata, transformTime } = {}) => {
         if (err) return callback(err);
 
         metadataSubscribers.forEach(s => passMetadata(s, this, metadata));
+
+        if (transformTime && typeof timingCallback === 'function') timingCallback(transformTime, filename);
 
         return callback(null, code, map);
       },
     );
   }
 
-  const { code, map, metadata } = transpile(source, options);
+  const { code, map, metadata, transformTime } = transpile(source, options);
 
   metadataSubscribers.forEach(s => passMetadata(s, this, metadata));
+
+  if (transformTime && typeof timingCallback === 'function') timingCallback(transformTime, filename);
 
   this.callback(null, code, map);
 };
